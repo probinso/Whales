@@ -4,7 +4,7 @@ import re
 
 import numpy as np
 
-class ACOLoader:
+class _ACOLoader:
     header_dtype = np.dtype(
         [('Record', '<u4'),
          ('Decimation', '<u1'),
@@ -31,17 +31,11 @@ class ACOLoader:
     resolution = np.int32
     time_code = '%Y-%m-%d--%H.%M'
 
-    def __init__(self, time_stamp=None, fs=None, data=None, max_value=None, initialized=False):
-        self._time_stamp = time_stamp
-        self._fs = fs
-        self._data = data
-        self._max_value = max_value
-        self._initialized = initialized
-
-    def load_from_ACO_file(self, filename):
-        self._time_stamp, self._fs = self._params_from_filename(filename)
-        self._data, self._max_value = self._from_file(filename)
-        self._initialized = True
+    @classmethod
+    def load_ACO_from_file(cls, filename):
+        time_stamp, fs = cls._params_from_filename(filename)
+        data = cls._from_file(filename)
+        return ACO(time_stamp, fs, data)
 
     @classmethod
     def _ACO_to_int(cls, databytes, nbits):
@@ -67,9 +61,48 @@ class ACOLoader:
         return num
 
     @classmethod
-    def __floor_dt(cls, dt, *, res=datetime.timedelta(minutes=5)):
+    def _params_from_filename(cls, filename):
+        #2016-02-15--05.00.HYD24BBpk
+        name = osp.basename(filename)
+        dts, encs = name.rsplit('.', 1)
+        time_stamp = datetime.datetime.strptime(dts, cls.time_code)
+
+        fs = int(re.findall('\d+', encs).pop())*1000
+        return time_stamp, fs
+
+    @classmethod
+    def _from_file(cls, filename):
+        headerlist = []
+        datalist = []
+        with open(filename, 'rb') as fid:
+            fid.seek(0, 2)
+            eof = fid.tell()
+            fid.seek(0, 0)
+            while fid.tell() < eof:
+                header = np.fromfile(fid, count=1, dtype=cls.header_dtype)[0]
+                headerlist.append(header)
+                nbits = int(header['bits'])
+                count = (4096//8) * nbits
+                databytes = np.fromfile(fid, count=count, dtype='<u1')
+                data = cls._ACO_to_int(databytes, nbits)
+                datalist.append(data)
+
+        headers = np.array(headerlist)
+
+        # Keeping the blocks separate, matching the headers:
+        data = np.vstack(datalist)
+
+        # But we can also view it as a single time series:
+        alldata = data.reshape(-1)
+        return alldata
+
+class _DatetimeACOLoader(_ACOLoader):
+    res = datetime.timedelta(minutes=5)
+
+    @classmethod
+    def __floor_dt(cls, dt):
         src = datetime.timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
-        offset = src.total_seconds() % res.total_seconds()
+        offset = src.total_seconds() % cls.res.total_seconds()
         return dt - datetime.timedelta(seconds=offset)
 
     @classmethod
@@ -85,59 +118,38 @@ class ACOLoader:
         basename = cls._filename_from_date(index_datetime)
         return osp.join(dirname, basename)
 
-    def load_from_date(self, storage_dir, index_datetime):
-        floor_datetime = self.__floor_dt(index_datetime)
-        fullpath = osp.join(storage_dir, self._path_from_date(floor_datetime))
-        self.load_from_ACO_file(fullpath)
-        self._initialized = True
-
     @classmethod
-    def _params_from_filename(cls, filename):
-        #2016-02-15--05.00.HYD24BBpk
-        name = osp.basename(filename)
-        dts, encs = name.rsplit('.', 1)
-        time_stamp = datetime.datetime.strptime(dts, cls.time_code)
+    def load_ACO_from_datetime(cls, storage_dir, index_datetime):
+        floor_datetime = cls.__floor_dt(index_datetime)
+        fullpath = osp.join(storage_dir, cls._path_from_date(floor_datetime))
+        return cls.load_ACO_from_file(fullpath)
 
-        fs = int(re.findall('\d+', encs).pop())*1000
-        return time_stamp, fs
+class ACOio:
+    @classmethod
+    def load(cls, target):
+        if isinstance(target, str):
+            return _ACOLoader.load_ACO_from_file(target)
+        if isinstance(target, datetime.datetime):
+            return _DatetimeACOLoader.load_ACO_from_datetime(target)
 
-    def _from_file(self, filename):
-        headerlist = []
-        datalist = []
-        with open(filename, 'rb') as fid:
-            fid.seek(0, 2)
-            eof = fid.tell()
-            fid.seek(0, 0)
-            while fid.tell() < eof:
-                header = np.fromfile(fid, count=1, dtype=self.header_dtype)[0]
-                headerlist.append(header)
-                nbits = int(header['bits'])
-                count = (4096//8) * nbits
-                databytes = np.fromfile(fid, count=count, dtype='<u1')
-                data = self._ACO_to_int(databytes, nbits)
-                datalist.append(data)
+class ACO:
+    def __init__(self, time_stamp, fs, data):
+        self._time_stamp = time_stamp
+        self._fs = fs
+        self._data = data.astype(np.float64)
 
-        headers = np.array(headerlist)
-
-        # Keeping the blocks separate, matching the headers:
-        data = np.vstack(datalist)
-
-        # But we can also view it as a single time series:
-        alldata = data.reshape(-1)
-        max_value = np.max(np.abs(alldata))
-        return alldata, max_value
-
-
-class ACO(ACOLoader):
     @property
-    def normdata(self):
+    def _max_value(self):
+        return np.max(np.abs(self._data))
+
+    @property
+    def normdata(self, dtype=np.int32):
         data = self._data.copy()
         max_value = self._max_value
-        view = self.resolution
-        data = ((data.astype(np.float64)/max_value) * np.iinfo(view).max).astype(view)
+        data = ((data/max_value) * np.iinfo(dtype).max).astype(dtype)
         return data
 
-    def Listen(self, ):
+    def Listen(self):
         from IPython.display import Audio
         return Audio(data=self.normdata, rate=self._fs)
 
@@ -145,19 +157,26 @@ class ACO(ACOLoader):
         pass
 
     def time_offset(self, t):
+        # XXX if t is None? fix results
         return (t - self._time_stamp)
 
     def frame_offset(self, t):
+        if t is None:
+            return None
         return int(self.time_offset(t).total_seconds()) * self._fs
 
     def __getitem__(self, slice_):
         i, j = slice_.start, slice_.stop
 
-        result = ACO(
-            self._time_stamp+self.time_offset(i),
+        return ACO(
+            self._time_stamp + (0 if i is None else self.time_offset(i)),
             self._fs,
             self._data[self.frame_offset(i):self.frame_offset(j)].copy(),
-            self._max_value,
-            True
         )
-        return result
+
+    @property
+    def durration(self):
+        return (self._data.size // self._fs) // 60
+
+    def __matmul__(self, other):
+        pass
