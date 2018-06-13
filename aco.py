@@ -3,6 +3,7 @@ import os.path as osp
 import re
 
 import numpy as np
+import scipy.signal as signal
 
 class _ACOLoader:
     header_dtype = np.dtype(
@@ -125,12 +126,14 @@ class _DatetimeACOLoader(_ACOLoader):
         return cls.load_ACO_from_file(fullpath)
 
 class ACOio:
-    @classmethod
-    def load(cls, target):
+    def __init__(self, basedir):
+        self.basedir = basedir
+
+    def load(self, target):
         if isinstance(target, str):
             return _ACOLoader.load_ACO_from_file(target)
         if isinstance(target, datetime.datetime):
-            return _DatetimeACOLoader.load_ACO_from_datetime(target)
+            return _DatetimeACOLoader.load_ACO_from_datetime(self.basedir, target)
 
 class ACO:
     def __init__(self, time_stamp, fs, data):
@@ -153,8 +156,62 @@ class ACO:
         from IPython.display import Audio
         return Audio(data=self.normdata, rate=self._fs)
 
-    def View(self):
-        pass
+    def spectrogram(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
+        mat = self._Frame(frame_duration, frame_shift)
+        mat *= signal.get_window(wtype, mat.shape[1])
+        N = 2 ** int(np.ceil(np.log2(mat.shape[0])))
+        return np.fft.rfft(mat, n=N)
+
+    def logspectrogram(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
+        mat = self.spectrogram(frame_duration, frame_shift, wtype)
+        return 20 * np.log10(np.abs(mat))
+
+    def autocorrelogram(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
+        mat = self._data
+        return  np.correlate(mat, mat, mode='same')
+
+    def cepstrum(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
+        mat = self.spectrogram(frame_duration, frame_shift, wtype)
+        return np.fft.irfft(np.log(np.abs(mat))).real
+
+    def View(self, itype=None, **kwargs):
+        if itype is None:
+            data = self._data
+        elif hasattr(self, itype):
+            attr = getattr(self, itype)
+            data = attr(**kwargs) if callable(attr) else attr
+        else:
+            raise "Fuck You"
+
+        from matplotlib import pyplot as plt
+        fig = plt.figure()
+
+        plt.title(str(dict(max=data.max(), min=data.min(), shape=data.shape)))
+        if len(data.shape) == 1:
+            _ = plt.plot(data)
+        elif len(data.shape) == 2:
+            _ = plt.imshow(X=data.T.real, interpolation=None)
+        else:
+            raise "DUM DUM DUM"
+
+    def _Frame(self, frame_duration=.008, frame_shift=.0065):
+        toint = lambda f: int(np.round(f))
+
+        n = toint(self._fs * frame_duration)
+        s = toint(self._fs * frame_shift)
+
+        total_frames = (len(self._data) - n) // s + 1
+
+        dom = np.arange(total_frames) * s + n // 2
+        mat = np.empty((total_frames, n))
+        mat[:,:] = np.NAN
+
+        start = 0
+        for i in range(total_frames):
+            idx = slice(start, (start+n))
+            mat[i, :] = self._data[idx]
+            start += s
+        return mat
 
     def time_offset(self, t):
         # XXX if t is None? fix results
