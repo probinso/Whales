@@ -6,6 +6,8 @@ import re
 import numpy as np
 import scipy.signal as signal
 
+# https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.stft.html
+
 class _ACOLoader:
     header_dtype = np.dtype(
         [('Record', '<u4'),
