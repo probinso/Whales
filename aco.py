@@ -1,4 +1,5 @@
 import datetime
+from datetime import datetime, timedelta
 import os.path as osp
 import re
 
@@ -66,7 +67,7 @@ class _ACOLoader:
         #2016-02-15--05.00.HYD24BBpk
         name = osp.basename(filename)
         dts, encs = name.rsplit('.', 1)
-        time_stamp = datetime.datetime.strptime(dts, cls.time_code)
+        time_stamp = datetime.strptime(dts, cls.time_code)
 
         fs = int(re.findall('\d+', encs).pop())*1000
         return time_stamp, fs
@@ -98,17 +99,17 @@ class _ACOLoader:
         return alldata
 
 class _DatetimeACOLoader(_ACOLoader):
-    res = datetime.timedelta(minutes=5)
+    res = timedelta(minutes=5)
 
     @classmethod
     def __floor_dt(cls, dt):
-        src = datetime.timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
+        src = timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
         offset = src.total_seconds() % cls.res.total_seconds()
-        return dt - datetime.timedelta(seconds=offset)
+        return dt - timedelta(seconds=offset)
 
     @classmethod
     def _filename_from_date(cls, index_datetime):
-        dts = datetime.datetime.strftime(index_datetime, cls.time_code)
+        dts = datetime.strftime(index_datetime, cls.time_code)
         encs = 'HYD24BBpk'
         return '.'.join([dts, encs])
 
@@ -132,7 +133,7 @@ class ACOio:
     def load(self, target):
         if isinstance(target, str):
             return _ACOLoader.load_ACO_from_file(target)
-        if isinstance(target, datetime.datetime):
+        if isinstance(target, datetime):
             return _DatetimeACOLoader.load_ACO_from_datetime(self.basedir, target)
 
 class ACO:
@@ -213,27 +214,34 @@ class ACO:
             start += s
         return mat
 
-    def time_offset(self, t):
-        # XXX if t is None? fix results
-        return (t - self._time_stamp)
-
     def frame_offset(self, t):
-        if t is None:
-            return None
-        return int(self.time_offset(t).total_seconds()) * self._fs
+        return int(t.total_seconds()) * self._fs
 
     def __getitem__(self, slice_):
         i, j = slice_.start, slice_.stop
 
+        new_start \
+            = timedelta(0) if i is None else i
+
+        new_end \
+            = self.durration if j is None else j
+
+        if new_start.total_seconds() < 0:
+            raise "PreIndexError"
+
+        if new_end.total_seconds() > self._durration:
+            raise "PostIndexError"
+
         return ACO(
-            self._time_stamp + (0 if i is None else self.time_offset(i)),
+            self._time_stamp + new_start,
             self._fs,
-            self._data[self.frame_offset(i):self.frame_offset(j)].copy(),
+            self._data[self.frame_offset(new_start):
+                       self.frame_offset(new_end)]
         )
 
     @property
-    def durration(self):
-        return (self._data.size // self._fs) // 60
+    def _durration(self):
+        return float((self._data.size / self._fs))
 
     def __matmul__(self, other):
         pass
