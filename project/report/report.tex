@@ -1,0 +1,107 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage[affil-it]{authblk}
+
+\usepackage[USenglish,american]{babel}
+\usepackage[pdftex]{graphicx}
+\usepackage{epstopdf}
+
+\usepackage{cite}
+
+\usepackage{amsfonts,amsmath,amsthm,amssymb}
+
+\usepackage{tikz,pgf}
+\usetikzlibrary{fit}
+
+\usepackage{csvsimple}
+
+%\pagestyle{empty}
+\setlength{\parindent}{0mm}
+\usepackage[letterpaper, margin=1in]{geometry}
+%\usepackage{showframe}
+
+\usepackage{multicol}
+\usepackage{enumerate}
+
+\usepackage{verbatim}
+\usepackage{listings}
+
+\usepackage{color}
+
+%%
+%% Julia definition (c) 2014 Jubobs
+%%
+\lstdefinelanguage{Julia}%
+  {morekeywords={abstract,break,case,catch,const,continue,do,else,elseif,%
+      end,export,false,for,function,immutable,import,importall,if,in,%
+      macro,module,otherwise,quote,return,switch,true,try,type,typealias,%
+      using,while},%
+   sensitive=true,%
+   alsoother={$},%
+   morecomment=[l]\#,%
+   morecomment=[n]{\#=}{=\#},%
+   morestring=[s]{"}{"},%
+   morestring=[m]{'}{'},%
+}[keywords,comments,strings]%
+
+\lstset{%
+    language         = Python,
+    basicstyle       = \footnotesize\ttfamily,,
+    keywordstyle     = \bfseries\color{blue},
+    stringstyle      = \color{magenta},
+    commentstyle     = \color{red},
+    showstringspaces = false,
+    backgroundcolor  = \color{lightgray},
+    numbers          = left,
+    title            = \lstname,
+    numberstyle      = \tiny\color{lightgray}\ttfamily,
+}
+
+\usepackage{xspace}
+\usepackage{url}
+\usepackage{cite}
+
+\usepackage{coffee4}
+
+%\usepackage{titlesec}
+%\titlespacing*{\subsubsection}{0pt}{*0}{*0}
+%\titlespacing*{\subsection}{0pt}{0pt}{*0}
+%\titlespacing*{\section}{0pt}{0pt}{*0}
+
+\newcommand{\Bold}{\mathbf}
+
+\setlength{\parskip}{1em}
+%\setlength{\parindent}{1em}
+
+\title{Large data vocals localization for large mammals}
+\date{\today}
+\author{Philip Robinson}
+\affil{Oregon Health Sciences University}
+
+\begin{document}
+
+%\twocolumn[\begin{@twocolumnfalse}
+
+%
+
+%\end{@twocolumnfalse}]
+
+\maketitle
+
+\begin{abstract}
+  There is a need for an automatically generated index of whale vocalizations and associated metadata for University of Hawaii's hydrophone recordings. Currently searching the audio recordings is done at human speed by listening to the audio stream, which is prohibitive at about 10 years of content. The extended goal of this work is to use whale vocalization as a proxy measurement of migration patterns, and attempt to identify migratory changes against known climate events. In order to accomplish this task, noise in audio recording should be smoothed or removed, vocalizations must be localized/indexed, features of speech must be extracted, species must be identified~\cite{2014ASAJ} or clustered. The proposal is to develop a processing system that creates simple data store of recording localization~\cite{witten_1985} and metadata associated with vocalization events, renders a denoised~\cite{Baskar2015StudyOD} copy of those vocalization events, and provide a simple time based retrieval system. The system will be written using \texttt{python} and the \texttt{scipy} libraries for signal processing, \texttt{ponyorm} for light weight authoring of data store, and \texttt{paramiko} if needed for accessing remote recordings of original data. This project will be considered successful if queries can return clear audio renderings of vocalization events, and at least one month of data can be indexed with a known upper bound to memory needs.
+\end{abstract}
+\begin{comment}
+\section{Introduction}
+\section{Prior Work}
+\section{Methods}
+\section{Materials}
+\section{Results}
+\section{Discussion}
+\subsection{Study Assumptions}
+\subsection{Data Acquisition}
+\end{comment}
+\bibliography{references.bib}{}
+\bibliographystyle{plain}
+
+\end{document}
