@@ -3,8 +3,15 @@ from datetime import datetime, timedelta
 import os.path as osp
 import re
 
+from PyEMD import EMD
+from memoized_property import memoized_property
+
 import numpy as np
 import scipy.signal as signal
+
+import warnings
+
+from operator import attrgetter
 
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.stft.html
 
@@ -66,7 +73,7 @@ class _ACOLoader:
 
     @classmethod
     def _params_from_filename(cls, filename):
-        #2016-02-15--05.00.HYD24BBpk
+        # 2016-02-15--05.00.HYD24BBpk
         name = osp.basename(filename)
         dts, encs = name.rsplit('.', 1)
         time_stamp = datetime.strptime(dts, cls.time_code)
@@ -138,72 +145,150 @@ class ACOio:
         if isinstance(target, datetime):
             return _DatetimeACOLoader.load_ACO_from_datetime(self.basedir, target)
 
+from collections import namedtuple
+
+PlotInfo = namedtuple('PlotInfo', ['data', 'xaxis', 'interval', 'shift'])
+
 class ACO:
-    def __init__(self, time_stamp, fs, data):
+    def __init__(self, time_stamp, fs, data, centered=False):
         self._time_stamp = time_stamp
         self._fs = fs
         self._data = data.astype(np.float64)
+        self._centered = centered
 
-    @property
+    @memoized_property
     def _max_value(self):
         return np.max(np.abs(self._data))
 
-    @property
+    @memoized_property
     def normdata(self, dtype=np.int32):
         data = self._data.copy()
         max_value = self._max_value
         data = ((data/max_value) * np.iinfo(dtype).max).astype(dtype)
         return data
 
-    def Listen(self):
+    def resample(self, n):
+        if len(self) == n:
+            return self.copy()
+
+        fs_ratio = n/len(self._data)
+        warnings.warn(f'Only {fs_ratio:.3f} of signal represented', UserWarning)
+        x = signal.resample(self._data, n)
+        return ACO(
+            self._time_stamp,
+            int(np.round(self._fs * fs_ratio)),
+            x
+        )
+
+    def _resample_fs(self, fs):
+        fs_ratio = fs/self._fs
+        data = signal.resample(self._data, int(np.round(len(self)*fs_ratio)))
+        return data
+
+    @memoized_property
+    def _emd(self):
+        emd = EMD()
+        return emd(self._data)
+
+    def remove_dc(self, levels=1):
+        assert(levels != 0)
+        IMFs = self._emd
+        return ACO(
+            self._time_stamp,
+            self._fs,
+            self._data - np.sum(IMFs[levels:], axis=0),
+            True
+        )
+
+    def sloppy_remove_dc(self):
+        warnings.warn('Do not use in production. No justification for method.', UserWarning)
+        n = len(self)
+        x = signal.resample(signal.resample(self._data, 1000), n)
+
+        return ACO(
+            self._time_stamp,
+            self._fs,
+            self._data - x,
+            True
+        )
+
+    def Listen(self, data=None):
+        if data is None:
+            data = self._data.copy()
+
+        # bug in IPython.Audio, only handles common fs
+        fs = 24000
+        data = self._resample_fs(24000)
+
         from IPython.display import Audio
-        return Audio(data=self.normdata, rate=self._fs)
+        return Audio(data=data, rate=fs)
 
-    def spectrogram(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
-        mat = self._Frame(frame_duration, frame_shift)
-        mat *= signal.get_window(wtype, mat.shape[1])
+    def spectrogram(self, frame_duration=.08, frame_shift=.001, wtype='hanning'):
+        unit = self._Frame(frame_duration, frame_shift)
+        mat = unit.data * signal.get_window(wtype, unit.data.shape[1])
         N = 2 ** int(np.ceil(np.log2(mat.shape[0])))
-        return np.fft.rfft(mat, n=N)
+        return unit._replace(data=np.fft.rfft(mat, n=N))
 
-    def logspectrogram(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
-        mat = self.spectrogram(frame_duration, frame_shift, wtype)
-        return 20 * np.log10(np.abs(mat))
+    def logspectrogram(self, frame_duration=.08, frame_shift=.001, wtype='hanning'):
+        unit = self.spectrogram(frame_duration, frame_shift, wtype)
+        return unit._replace(data=(20 * np.log10(np.abs(unit.data))))
 
-    def autocorrelogram(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
-        mat = self._data
-        return  np.correlate(mat, mat, mode='same')
+    def autocorr(self):
+        x = self._data
+        n = len(x)
+        return np.correlate(x, x, mode='full')[n - 1:]
 
-    def cepstrum(self, frame_duration=.008, frame_shift=.0065, wtype='hanning'):
-        mat = self.spectrogram(frame_duration, frame_shift, wtype)
-        return np.fft.irfft(np.log(np.abs(mat))).real
+    def periodogram(self):#, frame_duration=.08, frame_shift=.001, wtype='rectagle'):
+        return signal.periodogram(self._data, fs=self._fs)
+
+    def cepstrum(self, frame_duration=.08, frame_shift=.001, wtype='hanning'):
+        unit = self.spectrogram(frame_duration, frame_shift, wtype)
+        return unit._replace(data=(np.fft.irfft(np.log(np.abs(unit.data))).real))
 
     def View(self, itype=None, **kwargs):
         if itype is None:
-            data = self._data
+            unit = self._data
         elif hasattr(self, itype):
             attr = getattr(self, itype)
-            data = attr(**kwargs) if callable(attr) else attr
+            unit = attr(**kwargs) if callable(attr) else attr
         else:
             raise "Fuck You"
 
         from matplotlib import pyplot as plt
-        fig = plt.figure()
 
-        plt.title(str(dict(max=data.max(), min=data.min(), shape=data.shape)))
-        if len(data.shape) == 1:
-            _ = plt.plot(data)
-        elif len(data.shape) == 2:
-            _ = plt.imshow(X=data.T.real, interpolation=None)
+        fig, ax = plt.subplots()
+        _ = plt.title(itype)
+
+        if isinstance(unit, PlotInfo):
+            '''
+            ['data', 'xaxis', 'yaxis'])
+            _ = plt.plot(unit.data.T.real)
+            '''
+
+            _ = plt.imshow(X=unit.data.T.real, interpolation=None)
+            _ = plt.yticks([])
+            _ = plt.ylabel(f'{unit.interval:.3f} interval, {unit.shift:.3f} shift, {self._fs} f/s')
+
+            #_ = plt.xticks(unit.xaxis) # too large
+        elif len(unit.shape) == 1:
+            _ = plt.plot(unit)
+        elif len(unit.shape) == 2:
+            _ = plt.imshow(X=unit.T.real, interpolation=None)
         else:
             raise "DUM DUM DUM"
 
-    def _Frame(self, frame_duration=.008, frame_shift=.0065):
+    def __len__(self):
+        return len(self._data)
+
+    def _Frame(self, frame_duration=.08, frame_shift=.001):
         toint = lambda f: int(np.round(f))
 
         n = toint(self._fs * frame_duration)
         s = toint(self._fs * frame_shift)
 
         total_frames = (len(self._data) - n) // s + 1
+        time = (self._time_stamp + (timedelta(seconds=frame_shift) * i)
+                for i in range(total_frames))
 
         dom = np.arange(total_frames) * s + n // 2
         mat = np.empty((total_frames, n))
@@ -214,36 +299,86 @@ class ACO:
             idx = slice(start, (start+n))
             mat[i, :] = self._data[idx]
             start += s
-        return mat
+        return PlotInfo(mat, time, frame_duration, frame_shift)
 
-    def frame_offset(self, t):
-        return int(t.total_seconds()) * self._fs
+    def delta_offset(self, t):
+        return int(t.total_seconds() * self._fs)
+
+    def _date_offset(self, d):
+        return self.delta_offset(d - self._time_stamp)
 
     def __getitem__(self, slice_):
         i, j = slice_.start, slice_.stop
+
+        if None in [i, j]:
+            raise "Needs Testing"
 
         new_start \
             = timedelta(0) if i is None else i
 
         new_end \
-            = self.durration if j is None else j
+            = self._durration if j is None else j
+
 
         if new_start.total_seconds() < 0:
             raise "PreIndexError"
 
-        if new_end.total_seconds() > self._durration:
+        if new_end.total_seconds() > self._durration.total_seconds():
             raise "PostIndexError"
 
         return ACO(
             self._time_stamp + new_start,
             self._fs,
-            self._data[self.frame_offset(new_start):
-                       self.frame_offset(new_end)]
+            self._data[self.delta_offset(new_start):
+                       self.delta_offset(new_end)]
+        )
+
+    def copy(self):
+        return ACO(
+            self._time_stamp,
+            self._fs,
+            self._data.copy()
         )
 
     @property
+    def end_datetime(self):
+        return self._time_stamp + self._durration
+
+    @memoized_property
     def _durration(self):
-        return float((self._data.size / self._fs))
+        return timedelta(seconds=float((self._data.size / self._fs)))
 
     def __matmul__(self, other):
-        pass
+        assert(self._centered == other._centered)
+
+        ordered = (self, other) # wlg
+        if self._fs != other._fs:
+            ordered = sorted((self, other), key=attrgetter('_fs'))
+            ordered[-1] = ACO(
+                ordered[-1]._time_stamp,
+                ordered[0]._fs,
+                ordered[-1]._resample_fs(ordered[0]._fs)
+            )
+
+        ordered = sorted(ordered, key=attrgetter('_time_stamp'))
+        end = max(map(attrgetter('end_datetime'), ordered))
+        date_offset = ordered[0]._date_offset
+        space = date_offset(end)
+
+        data = np.full(space, np.NAN)
+        data[:len(ordered[0])] = ordered[0]._data
+
+        start = date_offset(ordered[-1]._time_stamp)
+        idx = slice(start, start+len(ordered[-1]))
+        overlap_count = np.sum(ordered[-1]._data[np.where(data[idx] is not np.NAN)] is not np.NAN)
+
+        if overlap_count > 0:
+            warnings.warn(f'Overlaps {overlap_count} samples', UserWarning)
+
+        data[idx] = ordered[-1]._data
+
+        return ACO(ordered[0]._time_stamp,
+                   ordered[0]._fs,
+                   data,
+                   ordered[0]._centered
+        )
