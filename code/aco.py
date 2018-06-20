@@ -160,6 +160,8 @@ class ACO:
     def _max_value(self):
         return np.max(np.abs(self._data))
 
+
+
     @memoized_property
     def normdata(self, dtype=np.int32):
         data = self._data.copy()
@@ -212,24 +214,90 @@ class ACO:
             True
         )
 
+    @classmethod
+    def _to_frame_count(cls, fs, seconds):
+        return int(np.round(seconds * fs))
+
+    def to_frame_count(self, seconds):
+        return self._to_frame_count(self._fs, seconds)
+
     def Listen(self, data=None):
         if data is None:
             data = self._data.copy()
 
         # bug in IPython.Audio, only handles common fs
         fs = 24000
-        data = self._resample_fs(24000)
+        data = self._resample_fs(fs)
 
         from IPython.display import Audio
         return Audio(data=data, rate=fs)
 
-    def spectrogram(self, frame_duration=.08, frame_shift=.001, wtype='hanning'):
+    def stft(self):
+        return signal.stft(self._data, self._fs)
+
+    def spectrogram(self, frame_duration=.08, frame_shift=.02, wtype='hanning'):
         unit = self._Frame(frame_duration, frame_shift)
         mat = unit.data * signal.get_window(wtype, unit.data.shape[1])
         N = 2 ** int(np.ceil(np.log2(mat.shape[0])))
         return unit._replace(data=np.fft.rfft(mat, n=N))
 
-    def logspectrogram(self, frame_duration=.08, frame_shift=.001, wtype='hanning'):
+    def power(self, frame_duration=.08, frame_shift=.02, wtype='boxcar'):
+        num_overlap = self.to_frame_count(frame_duration - frame_shift)
+        frame_size = self.to_frame_count(frame_duration)
+        window=signal.get_window(wtype, frame_size)
+
+        _, power = signal.welch(
+            self._data,
+            window=window,
+            return_onesided=False,
+            scaling='spectrum',
+            noverlap=num_overlap
+        )
+        return power * window.sum()**2
+
+    def _spectral_subtraction(self, other, frame_duration=.08, frame_shift=.02, wtype='boxcar'):
+
+        Frames = self._Frame(frame_duration, frame_shift).data
+        power = other.power(frame_duration, frame_shift, wtype)
+        window = signal.get_window(wtype, self.to_frame_count(frame_duration))
+
+        spectrum = np.fft.fft(Frames * window)
+        amplitude = np.abs(spectrum)
+        phase = np.angle(spectrum)
+
+        # tune parameters
+        _ = (amplitude ** 2.0) - (power * 5.0)
+        _ = np.maximum(_, .01 * amplitude ** 2.0)
+        _ = np.sqrt(_)
+        _ = _ * np.exp(phase*1j)
+
+        return _
+
+    @classmethod
+    def _overlap_add(cls, frames, shift, norm=True):
+        count, size = frames.shape
+        assert(shift < size)
+        store = np.full((count, (size + (shift * (count - 1)))), np.NAN)
+        for i in range(count):
+            store[i][shift*i:shift*i+size] = frames[i]
+        out = np.nansum(store, axis=0)
+        if norm:
+            out = out/np.sum(~np.isnan(store), axis=0)
+        return out
+
+    def subtract(self, other, frame_duration=.08, frame_shift=.02, wtype='boxcar'):
+        assert(self._fs == other._fs)
+        new_spectrum = self._spectral_subtraction(other, frame_duration, frame_shift, wtype)
+        frames = np.fft.ifft(new_spectrum).real
+        data = self._overlap_add(frames, self.to_frame_count(frame_shift))
+
+        return ACO(
+            self._time_stamp,
+            self._fs,
+            data
+        )
+
+    def logspectrogram(self, frame_duration=.08, frame_shift=.02, wtype='hanning'):
         unit = self.spectrogram(frame_duration, frame_shift, wtype)
         return unit._replace(data=(20 * np.log10(np.abs(unit.data))))
 
@@ -238,10 +306,10 @@ class ACO:
         n = len(x)
         return np.correlate(x, x, mode='full')[n - 1:]
 
-    def periodogram(self):#, frame_duration=.08, frame_shift=.001, wtype='rectagle'):
+    def periodogram(self):
         return signal.periodogram(self._data, fs=self._fs)
 
-    def cepstrum(self, frame_duration=.08, frame_shift=.001, wtype='hanning'):
+    def cepstrum(self, frame_duration=.08, frame_shift=.02, wtype='hanning'):
         unit = self.spectrogram(frame_duration, frame_shift, wtype)
         return unit._replace(data=(np.fft.irfft(np.log(np.abs(unit.data))).real))
 
@@ -257,7 +325,8 @@ class ACO:
         from matplotlib import pyplot as plt
 
         fig, ax = plt.subplots()
-        _ = plt.title(itype)
+        name = 'wave' if itype is None else itype
+        _ = plt.title(f'{name} @ {self._time_stamp}')
 
         if isinstance(unit, PlotInfo):
             '''
@@ -280,11 +349,10 @@ class ACO:
     def __len__(self):
         return len(self._data)
 
-    def _Frame(self, frame_duration=.08, frame_shift=.001):
-        toint = lambda f: int(np.round(f))
+    def _Frame(self, frame_duration=.08, frame_shift=.02):
 
-        n = toint(self._fs * frame_duration)
-        s = toint(self._fs * frame_shift)
+        n = self.to_frame_count(frame_duration)
+        s = self.to_frame_count(frame_shift)
 
         total_frames = (len(self._data) - n) // s + 1
         time = (self._time_stamp + (timedelta(seconds=frame_shift) * i)
