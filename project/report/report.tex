@@ -76,7 +76,7 @@
 
 
 \begin{abstract}
-  There is a need for an index of acustic events and associated metadata for University of Hawaii's Aloha Cabled Observatory (ACO) hydrophone recordings. Currently searching the audio recordings is done at human pace by listening to the audio stream, which is prohibitive at approximately 10 years of content.
+  There is a need for an index of acoustic events and associated metadata for University of Hawaii's Aloha Cabled Observatory (ACO) hydrophone recordings. Currently searching the audio recordings is done at human pace by listening to the audio stream, which is prohibitive at approximately 10 years of content.
 The proposal is to develop a processing system that creates simple data store of vocals and metadata associated with vocalization events, renders a denoised~\cite{Baskar2015StudyOD,specsub2008,Berouti1979EnhancementOS} copy of those vocalization events, and provide a simple time based retrieval system. The system is written using \texttt{python} and the \texttt{scipy}~\cite{Jones2001} libraries for signal processing. %
  The extended goal of this work is to use whale vocalization as a proxy measurement of migration patterns, and attempt to identify migratory changes against known climate events. In order to accomplish this task, noise in audio recording should be smoothed or removed, vocalizations must be localized/indexed, features of speech must be extracted, species must be identified~\cite{2014ASAJ} or clustered.
 % , \texttt{ponyorm} for light weight authoring of data store, and \texttt{paramiko} if needed for accessing remote recordings of original data.
@@ -129,7 +129,7 @@ snip.View()
 
 \end{figure}
 
-It is visible, from \texttt{(Figure~\ref{fig:rawwav})} that the direct current gain is not centered at zero, nor trivially accumulative. This is a consiquence of changes in atmospheric pressure, due to the ocean's motion, attenuating the signal. Without these changes in atmospheric pressure the current gain can be corrected by removing the mean of the original signal, however in this case empirical mode decomposition is used to yield more accurate results. This will be addressed in greater detail later.
+It is visible, from \texttt{(Figure~\ref{fig:rawwav})} that the direct current gain is not centered at zero, nor trivially accumulative. This is a consequence of changes in atmospheric pressure, due to the ocean's motion, attenuating the signal. Without these changes in atmospheric pressure the current gain can be corrected by removing the mean of the original signal, however in this case empirical mode decomposition is used to yield more accurate results. This will be addressed in greater detail later.
 
 \begin{figure}[H]
   \centering
@@ -169,7 +169,7 @@ At a single frame at point $p$ and length $L$,
   |Y(pL, \omega)|^2 &= |X(pL, \omega)|^2 \\&+|B(pL, \omega)|^2 + |X(pL, \omega)*B(pL, \omega)|\\
 \end{align*}
 
-We can estimate the background noise, given sufficently small frames, by subtracting the mean power spectrum from a segment of only noise. Using Welch's method~\cite{welch1976} we are able to estimate the mean power spectrum.
+We can estimate the background noise, given sufficiently small frames, by subtracting the mean power spectrum from a segment of only noise. Using Welch's method~\cite{welch1976} we are able to estimate the mean power spectrum.
 
 \begin{figure}[H]
 
@@ -201,9 +201,9 @@ def _spectral_subtraction(self, other,
 
 \end{figure}
 
-Rather than the original spectral subtraction algorithm, \texttt{(Figure~\ref{fig:subtractpy})} implements the algorithm found in ~\cite{Berouti1979EnhancementOS}. This allows for adjustable $\alpha$ and $\beta$ parameters, used in tuning some audio artifacts consiquent of spectral subtraction.
+Rather than the original spectral subtraction algorithm, \texttt{(Figure~\ref{fig:subtractpy})} implements the algorithm found in ~\cite{Berouti1979EnhancementOS}. This allows for adjustable $\alpha$ and $\beta$ parameters, used in tuning some audio artifacts consequent of spectral subtraction.
 
-From \texttt{(Figure~\ref{fig:subtract})} it is much easier to see the vocalization section in the waveform. It is aparent that the spectrogram has less noise, but not nessicarily in a useful way. This is due to the dynamic range and resolution problems mentioned above.
+From \texttt{(Figure~\ref{fig:subtract})} it is much easier to see the vocalization section in the waveform. It is apparent that the spectrogram has less noise, but not necessarily in a useful way. This is due to the dynamic range and resolution problems mentioned above.
 
 
 \begin{figure}[H]
@@ -256,7 +256,7 @@ Down sampling the data, as shown \texttt{(Figure~\ref{fig:resample})}, gives us 
 
 Empirical Mode Decomposition is used to address the variable gain found in this waveform, and allow us a more informative exploratory data analysis. Empirical mode decomposition expresses the current waveform as a summation of sine functions of learned mode. The results are stored, ordered by highest to lowest frequency. We can sum the first $k$ levels of the yield to capture the majority of data and audible effects, while ignoring the low order functions (that encode the gain).
 
-This is a computationally expensive procedure, that benifits from the downsampling step.
+This is a computationally expensive procedure, that benefits from the down sampling step.
 
 \begin{figure}[H]
   \centering
@@ -295,9 +295,9 @@ centered[
 \end{figure}
 
 
-\section{Notes}
+\section{Results}
 
-
+With the right parameters, this works very well to clean the data visually and audibly. Unfortunately, not all theses parameters have obvious or predictable trends. The goal of being able to with high precision label vocalization for later learned methods is definitely hit, and the ability to encode metadata enabling better audio track retrieval for human perception is on its way.
 
 \begin{comment}
 \section{Prior Work}
