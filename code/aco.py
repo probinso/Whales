@@ -1,7 +1,10 @@
 import datetime
 from datetime import datetime, timedelta
+from operator import attrgetter
 import os.path as osp
 import re
+import warnings
+
 
 from PyEMD import EMD
 from memoized_property import memoized_property
@@ -9,9 +12,6 @@ from memoized_property import memoized_property
 import numpy as np
 import scipy.signal as signal
 
-import warnings
-
-from operator import attrgetter
 
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.stft.html
 
